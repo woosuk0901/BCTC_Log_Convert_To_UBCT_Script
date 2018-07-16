@@ -4,6 +4,8 @@ var readline = require('readline');
 var construct_transaction = require('./construct_transaction');
 
 var cmdHeader = "";
+var cmdData = "";
+var statusWord = "";
 
 
 if (process.argv[2] != null) {
@@ -18,30 +20,17 @@ if (process.argv[2] != null) {
     });
     
     rd.on('line', function(line) {
-        if ((line.indexOf('APDU') != -1) || (line.indexOf('GPO') != -1) || (line.indexOf('READ RECORD') != -1) ||
-        (line.indexOf('GAC') != -1) || (line.indexOf('Verfiy Pin') != -1)) {
-            var cmdHeader = null;
-            var cmdData = ""
+        if ((line.indexOf('APDU') != -1) || (line.indexOf('Select') != -1) || (line.indexOf('GPO') != -1) || (line.indexOf('READ RECORD') != -1) || (line.indexOf('GAC') != -1) || (line.indexOf('Verfiy Pin') != -1)) {
             var headerIdx = line.indexOf('<black>') + 7;
             var dataIdx = line.indexOf('<black>', headerIdx) + 7;
             cmdHeader = line.substr(headerIdx, 14);
-            // cmdHeader = cmdHeader.replace(/(^\s+|\s+$)/g, "");
             cmdHeader = cmdHeader.split(' ').join('');
             var dataLength = cmdHeader.substr(cmdHeader.length - 2);
-            // console.log('Command : ' + cmdHeader);
             if (dataLength != '00') {
-                // console.log('Lc : ' + dataLength);
                 cmdData = line.substr(dataIdx, 3 * parseInt(dataLength, 16) - 1);
                 cmdData = cmdData.split(' ').join('');
-                // console.log('Data : ' + cmdData);
-               //  console.log('Command : ' + cmdHeader + cmdData);
             }
-            // else {
-            //     console.log('Command : ' + cmdHeader);
-            // }
-            // console.log('Command : ' + cmdHeader + cmdData);
-            construct_transaction.set_cmd(cmdHeader + cmdData);
-            
+            // construct_transaction.set_cmd(cmdHeader + cmdData);
         }
         if (line.indexOf('SW1_SW2') != -1) {
             var responseData = "";
@@ -54,10 +43,12 @@ if (process.argv[2] != null) {
                 var responseIdx = line.indexOf('OutCard') + 17;
                 responseData = line.substr(responseIdx, swIdx - responseIdx - 25);
                 responseData = responseData.split(' ').join('');
-                // console.log('response : ' + responseData);
             }
-            // console.log("\x1b[33m%s\x1b[0m", 'SW : ' + statusWord);
-            construct_transaction.set_response(statusWord);
+            construct_transaction.set_cmd(cmdHeader, cmdData, statusWord);
+            cmdHeader = "";
+            cmdData = "";
+            statusWord = "";
+           //  construct_transaction.set_response(statusWord);
         }
     });
 
