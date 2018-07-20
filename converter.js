@@ -2,6 +2,7 @@ var process = require('process');
 var fs = require('fs');
 var readline = require('readline');
 var construct_transaction = require('./construct_transaction');
+var path = require('path');
 
 var cmdHeader = "";
 var cmdData = "";
@@ -11,6 +12,9 @@ var statusWord = "";
 if (process.argv[2] != null) {
     var filePath = process.argv[2];
     console.log('\x1b[33m%s\x1b[0m', "file name : " + filePath);
+    var outputFileName = path.basename(filePath, path.extname(filePath));
+    construct_transaction.setOutputFilePath(`./Output/${outputFileName}.txt`);
+    console.log(`Output Path "./Output/${outputFileName}.txt"`);
 
     var rd = readline.createInterface({
         input: fs.createReadStream(filePath),
@@ -19,8 +23,11 @@ if (process.argv[2] != null) {
         terminal : false
     });
     
+    construct_transaction.init_Script();
+
     rd.on('line', function(line) {
-        if ((line.indexOf('APDU') != -1) || (line.indexOf('Select') != -1) || (line.indexOf('GPO') != -1) || (line.indexOf('READ RECORD') != -1) || (line.indexOf('GAC') != -1) || (line.indexOf('Verfiy Pin') != -1)) {
+        if ((line.indexOf('APDU') != -1) || (line.indexOf('Select') != -1) || (line.indexOf('GPO') != -1) || (line.indexOf('READ RECORD') != -1) || (line.indexOf('GAC') != -1) || (line.indexOf('Verfiy Pin') != -1) ||
+        (line.indexOf('ExAuth') != -1)) {
             var headerIdx = line.indexOf('<black>') + 7;
             var dataIdx = line.indexOf('<black>', headerIdx) + 7;
             cmdHeader = line.substr(headerIdx, 14);
@@ -32,7 +39,7 @@ if (process.argv[2] != null) {
             }
             // construct_transaction.set_cmd(cmdHeader + cmdData);
         }
-        if (line.indexOf('SW1_SW2') != -1) {
+        else if (line.indexOf('SW1_SW2') != -1) {
             var responseData = "";
             var statusWord = "";
             var swIdx = line.indexOf('SW1_SW2') + 17;
@@ -50,9 +57,18 @@ if (process.argv[2] != null) {
             statusWord = "";
            //  construct_transaction.set_response(statusWord);
         }
+        else if (line.indexOf('POWER ON') != -1) {
+            construct_transaction.power_on();
+        }
+        else if (line.indexOf('Error') != -1) {
+            construct_transaction.error_check(line);
+        }
+
+        
     });
 
     rd.on('close', () => {
         console.log('ERROR_SCRIPT:');
+        construct_transaction.end_script();
     })
 }
