@@ -1,4 +1,5 @@
 var fs = require('fs');
+var des = require('node-cardcrypto').des;
 
 var string;
 var cmd;
@@ -17,11 +18,16 @@ var transaction_num = 0;
 var logger;
 var flag_1st_gen_AC = false;
 
+var session_key_dek;
+
 function print_Script(line) {
     logger.write(line + '\r\n');
 }
 
 module.exports = {
+    setSessionDEK : (dek_key) => {
+        session_key_dek = dek_key;
+    },
     setOutputFilePath : (path) => {
         logger = fs.createWriteStream(path, {
             // flags: 'a+' // 'a' means appending (old data will be preserved)
@@ -58,6 +64,14 @@ module.exports = {
         print_Script(`LOCAL STRING AID_PSE "315041592E5359532E4444463031"`);
         print_Script(`LOCAL STRING AID_PPSE "325041592E5359532E4444463031"`);
         print_Script(`LOCAL STRING AID_PBOC "A0000003330101"`);
+        print_Script(`LOCAL STRING ELFAID`);
+        print_Script(`LOCAL STRING EMAID`);
+        print_Script(`LOCAL STRING INSTANCEAID`);
+        print_Script(`LOCAL STRING PRIV`);
+        print_Script(`LOCAL STRING INSTALL_PARAM`);
+        print_Script(`LOCAL STRING HRN "0000000000000000"`);
+        print_Script(`LOCAL STRING ISD_MK "404142434445464748494A4B4C4D4E4F404142434445464748494A4B4C4D4E4F404142434445464748494A4B4C4D4E4F"`);
+        print_Script(`LOCAL NUMERIC P2`);
 
     },
     error_check: (line) => {
@@ -71,20 +85,155 @@ module.exports = {
 
         print_Script('');
 
+        // 임시로 Get response not support
+        sw = "9000";
+
         switch(ins)
         {
+            case '82' : {
+                var cla = command.substr(0, 2);
+                if (cla === '84') {
+                    // ISD
+                    print_Script(`// Mutual Auth`);
+                    print_Script(`GPSETDESKEY ISD_MK`);
+                    print_Script(`GPMUTUALAUTH USERCARD 0 HRN 1 RESP SW "9000"`);
+                    print_Script(`JNE SW "9000" ERROR_SCRIPT`);
+                }
+                else {
+                    // PBOC
+                    print_Script(`// External Authenticate`);
+                    print_Script(`NOT TEMP ATC`);
+                    print_Script(`APPEND DATA "000000000000" ATC "000000000000" TEMP`);
+                    print_Script(`CIPHER SESK DATA UDK TDES_ENC_ECB`);
+                    print_Script(`APPEND DATA "3030" "000000000000"`);
+                    print_Script(`XOR DATA CAC DATA`);
+                    print_Script(`APPEND DATA DATA "0000000000000000"`);
+                    print_Script(`CIPHER ARQC DATA SESK TDES_ENC_ECB`);
+                    print_Script(`LEFT ARQC ARQC 16`);
+                    print_Script(`APPEND CMD "008200000A" ARQC "3030"`);
+                    print_Script(`SENDAPDU USERCARD CMD RESP SW "9000"`);
+                    print_Script(`JNE SW "9000" ERROR_SCRIPT`);
+                }
+            }break;
+            case 'E2' : {
+                var p1 = command.substr(4, 2);
+                var offset = 0;
+                var DGI = data.substr(offset, 4);
+                
+
+                var cla = parseInt(command.substr(0, 2), 16);
+                if ((cla & 0x04) === 0x04) {
+                    data = data.substr(0, data.length - 16);
+                }
+
+                if ((p1 === '60') || (p1 === 'E0')) {
+                    var encrypted_data = data.substr(6);
+                    encrypted_data = des.ecb_decrypt(session_key_dek, encrypted_data);
+                    data = data.substr(0, 6) + encrypted_data;
+                }
+
+                print_Script(`SET DATA "${data}"`);
+                print_Script(`GPSTOREDATA USERCARD 0x${p1} P2 DATA RESP SW "9000"`);
+                print_Script(`JNE SW "9000" ERROR_SCRIPT`);
+                print_Script(`ADD P2 P2 1`);
+
+            }break;
+            case 'E4' : {
+                var p2 = command.substr(6, 2);
+                var AID = data.substr(4, parseInt(data.substr(2, 2), 16) * 2);
+
+                if (AID === 'A0000003330101') {
+                    print_Script('// DELETE PBOC');
+                }
+                else if (AID === '315041592E5359532E4444463031') {
+                    print_Script('// DELETE PSE');
+                }
+                else if (AID === '325041592E5359532E4444463031') {
+                    print_Script('// DELETE PPSE');
+                }
+                else {
+                    print_Script(`// DELETE ${AID}`);
+                }
+
+                print_Script(`GPDELETE USERCARD 0x00 "${AID}" RESP SW "9000" "6A88"`);
+
+            }break;
+            case 'E6' : {
+                var p1 = command.substr(4, 2);
+
+                if (p1 === '0C') {
+                    var offset = 0;
+                    
+                    // get ELFAID
+                    var len = parseInt(data.substr(offset, 2), 16) * 2;
+                    offset += 2;
+                    var ELFAID = data.substr(offset, len);
+                    offset += len;
+                    // console.log(`ELFAID : ${ELFAID}`);
+
+                    // get EMAID
+                    len = parseInt(data.substr(offset, 2), 16) * 2;
+                    offset += 2;
+                    var EMAID = data.substr(offset, len);
+                    offset += len;
+                    // console.log(`EMAID : ${EMAID}`);
+
+                    // get InstanceAID
+                    len = parseInt(data.substr(offset, 2), 16) * 2;
+                    offset += 2;
+                    var INSTANCEAID = data.substr(offset, len);
+                    offset += len;
+                    // console.log(`INSTANCEAID : ${INSTANCEAID}`);
+
+                    // get Priv
+                    len = parseInt(data.substr(offset, 2), 16) * 2;
+                    offset += 2;
+                    var PRIV = data.substr(offset, len);
+                    offset += len;
+                    // console.log(`PRIV : ${PRIV}`);
+
+                    // get INSTALL PARAM
+                    len = parseInt(data.substr(offset, 2), 16) * 2;
+                    offset += 2;
+                    var INSTALL_PARAM = data.substr(offset, len);
+                    offset += len;
+                    var lenParam = parseInt(INSTALL_PARAM.substr(2, 2), 16) * 2;
+                    INSTALL_PARAM = INSTALL_PARAM.substr(4, lenParam);
+
+                    // console.log(`INSTALL_PARAM : ${INSTALL_PARAM}`);
+                    if (INSTANCEAID === 'A0000003330101') {
+                        print_Script('// INSTALL PBOC');
+                    }
+                    else if (INSTANCEAID === '315041592E5359532E4444463031') {
+                        print_Script('// INSTALL PSE');
+                    } 
+                    else if (INSTANCEAID === '325041592E5359532E4444463031') {
+                        print_Script('// INSTALL PPSE');
+                    } 
+                    else {
+                        print_Script(`// INSTALL ${INSTANCEAID}`);
+                    }
+
+                    print_Script(`SET ELFAID "${ELFAID}"`);
+                    print_Script(`SET EMAID "${EMAID}"`);
+                    print_Script(`SET INSTANCEAID "${INSTANCEAID}"`);
+                    print_Script(`SET INSTALL_PARAM "${INSTALL_PARAM}"`);
+                    print_Script(`GPINSTALLFORINSTALL USERCARD ELFAID EMAID INSTANCEAID 0x${PRIV} INSTALL_PARAM "" RESP SW "9000"`);
+
+                }
+            }break;
             case 'A4' : {
                 
                 AID = data;
-                if (AID == 'A0000003330101') {
+                if (AID === 'A0000003330101') {
                     print_Script('// SELECT PBOC');
                 }
-                else if (AID == '315041592E5359532E4444463031') {
+                else if (AID === '315041592E5359532E4444463031') {
                     print_Script('// SELECT PSE');
                 }
-                else if (AID == '325041592E5359532E4444463031') {
+                else if (AID === '325041592E5359532E4444463031') {
                     print_Script('// SELECT PPSE');
-                }else if (AID == 'A000000003000000') {
+                }else if (AID === 'A000000003000000') {
                     print_Script('// SELECT ISD');
                 }
 
@@ -162,19 +311,29 @@ module.exports = {
                 print_Script(`FINDTLV IAD "9F36" RESP`);
                 print_Script(`TRANSACTION${transaction_num}_${flag_num}_GENERATE_AC_TAG_77_END:`);
 
-                if (flag_num == "1st") {
+                if (flag_num === "1st") {
                     print_Script("");
                     print_Script(`NOT TEMP ATC`);
                     print_Script(`APPEND DATA "000000000000" ATC "000000000000" TEMP`);
                     print_Script(`CIPHER SESK DATA UDK TDES_ENC_ECB`);
+
+                    print_Script("");
+                    print_Script(`APPEND TEMP "${data.substr(0, 48)}" "${data.substr(data.length - 10)}"`);
+                    print_Script(`APPEND DATA TEMP AIP ATC CVR`);
+                    print_Script(`PADDING DATA DATA PAD_ISO9797_M2`);
+                    print_Script(`CIPHER CAC DATA SESK DES_TDES_MAC`);
+                    print_Script(`COMPARE CAC ${resp_ac} 0`);
+                }
+                else {
+                    print_Script("");
+                    print_Script(`APPEND TEMP "${data.substr(4, 48)}" "${data.substr(data.length - 10)}"`);
+                    print_Script(`APPEND DATA TEMP AIP ATC CVR`);
+                    print_Script(`PADDING DATA DATA PAD_ISO9797_M2`);
+                    print_Script(`CIPHER CAC DATA SESK DES_TDES_MAC`);
+                    print_Script(`COMPARE CAC ${resp_ac} 0`);
                 }
 
-                print_Script("");
-                print_Script(`APPEND TEMP "${data.substr(0, 48)}" "${data.substr(data.length - 10)}"`);
-                print_Script(`APPEND DATA TEMP AIP ATC CVR`);
-                print_Script(`PADDING DATA DATA PAD_ISO9797_M2`);
-                print_Script(`CIPHER CAC DATA SESK DES_TDES_MAC`);
-                print_Script(`COMPARE CAC ${resp_ac} 0`);
+                
             
             }break;
             case 'B2' : {
@@ -182,7 +341,7 @@ module.exports = {
                 print_Script(`SET CMD "${command}"`);
                 cmd = `SENDAPDU USERCARD CMD RESP SW "${sw}"`;
                 print_Script(cmd);
-                print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
+                // print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
             }break;
             case 'CA' : {
                 print_Script('// Get Data');
@@ -190,16 +349,27 @@ module.exports = {
                 cmd = `SENDAPDU USERCARD CMD RESP SW "${sw}"`;
                 print_Script(cmd);
                 print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
+                print_Script(`FINDTLV RESP "${command.substr(4, 4)}" RESP`);
             }break;
             case 'DA' : {
+                print_Script('// Make Session Key');
+                print_Script(`NOT TEMP ATC`);
+                print_Script(`APPEND DATA "000000000000" ATC "000000000000" TEMP`);
+                print_Script(`CIPHER SESK DATA MDK TDES_ENC_ECB`);
+
                 print_Script('// Put Data');
+                data = data.substr(0, data.length - 8);
                 print_Script(`SET CMD "${command}"`);
-                // cmd = `SENDAPDU USERCARD CMD RESP SW "${sw}"`;
-                // print_Script(cmd);
-                // print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
+                print_Script(`APPEND DATA CMD ATC RESP_AC1 "${data}"`);
+                print_Script(`PADDING DATA DATA PAD_ISO9797_M2`);
+                print_Script(`CIPHER MAC DATA SESK DES_TDES_MAC`);
+                print_Script(`LEFT MAC MAC 8`);
+                print_Script(`APPEND CMD CMD "${data}" MAC`);
+                print_Script(`SENDAPDU USERCARD CMD RESP SW "9000"`);
+                print_Script(`JNE SW "9000" ERROR_SCRIPT`);
             }break;
             case '82' : {
-                if (AID == "A0000003330101") {
+                if (AID === "A0000003330101") {
                     print_Script('// External Authenticate');
                     print_Script(`APPEND DATA "3030" "000000000000"`);
                     print_Script(`XOR DATA CAC DATA`);
@@ -218,18 +388,33 @@ module.exports = {
                 print_Script(cmd);
                 print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
             }break;
+            // case 'C0' : {
+            //     // print_Script('// Get Response');
+            //     // print_Script(`SET CMD "${command}"`);
+            //     // cmd = `SENDAPDU USERCARD CMD RESP SW "9000"`;
+            //     // print_Script(cmd);
+            //     // print_Script(`JNE SW "9000" ERROR_SCRIPT`);
+            // }break;
             default : {
-                print_Script('// Command');
-                print_Script(`SET CMD "${command}"`);
-                cmd = `SENDAPDU USERCARD CMD RESP SW "${sw}"`;
-                print_Script(cmd);
-                print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
+                return;
+                // print_Script('// Command');
+                // print_Script(`SET CMD "${command}"`);
+                // cmd = `SENDAPDU USERCARD CMD RESP SW "${sw}"`;
+                // print_Script(cmd);
+                // print_Script(`JNE SW "${sw}" ERROR_SCRIPT`);
             }
         }
+
+        if (sw.substr(0, 2) == "61") {
+            print_Script('');
+            print_Script('// Get Response');
+            command = "00C00000" + sw.substr(2, 2);
+            print_Script(`SET CMD "${command}"`);
+            cmd = `SENDAPDU USERCARD CMD RESP SW "9000"`;
+            print_Script(cmd);
+            print_Script(`JNE SW "9000" ERROR_SCRIPT`);
+        }
     },
-    end_script : () => {
-        transaction_num = 0;
-    }, 
     power_on : () => {
         AID = "";
         pdol_data = "";
@@ -241,11 +426,15 @@ module.exports = {
 
 
         print_Script(``);
-        print_Script(`// ==========================transaction ${++transaction_num}==========================`);
+        print_Script(`// =======================================transaction ${++transaction_num}=======================================`);
         print_Script(`// RESET`);
         print_Script(`POWERON USERCARD RESP`);
+        print_Script(`SET P2 0`);
     },
     script_end : () => {
+        transaction_num = 0;
+        print_Script(``);
+        print_Script(``);
         print_Script('ERROR_SCRIPT:');
     }
 };

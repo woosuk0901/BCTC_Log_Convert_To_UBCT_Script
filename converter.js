@@ -24,8 +24,9 @@ if (process.argv[2] != null) {
     });
     
     construct_transaction.init_Script();
-
+    
     rd.on('line', function(line) {
+        // console.log("aaa");
         if ((line.indexOf('APDU') != -1) || (line.indexOf('Select') != -1) || (line.indexOf('GPO') != -1) || (line.indexOf('READ RECORD') != -1) || (line.indexOf('GAC') != -1) || (line.indexOf('Verfiy Pin') != -1) ||
         (line.indexOf('ExAuth') != -1)) {
             var headerIdx = line.indexOf('<black>') + 7;
@@ -57,6 +58,11 @@ if (process.argv[2] != null) {
             statusWord = "";
            //  construct_transaction.set_response(statusWord);
         }
+        else if (line.indexOf('S-DEK Session Key') != -1) {
+            var key = line.substr(line.length - 36, 32);
+            construct_transaction.setSessionDEK(key);
+            // console.log(`dek : ${key}`);
+        }
         else if (line.indexOf('POWER ON') != -1) {
             construct_transaction.power_on();
         }
@@ -68,7 +74,7 @@ if (process.argv[2] != null) {
     });
 
     rd.on('close', () => {
-        console.log('ERROR_SCRIPT:');
-        construct_transaction.end_script();
+        // console.log('ERROR_SCRIPT:');
+        construct_transaction.script_end();
     })
 }
